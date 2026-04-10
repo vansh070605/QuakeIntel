@@ -1,77 +1,142 @@
 import React, { useState, useEffect } from 'react';
-import GisCenter from './components/GisCenter';
-import TacticalHud from './components/TacticalHud';
-import MlMonitor from './components/MlMonitor';
-import IndustrialLog from './components/IndustrialLog';
+import { motion, AnimatePresence } from 'framer-motion';
+import Header from './components/Header';
+import BriefOverlay from './components/BriefOverlay';
+
+// VIEWS
+import IntelligenceView from './components/views/IntelligenceView';
+import SurveillanceView from './components/views/SurveillanceView';
+import SimulationView from './components/views/SimulationView';
+import ResearchView from './components/views/ResearchView';
+import DossierView from './components/views/DossierView';
 
 const App = () => {
-  const [historicalData, setHistoricalData] = useState(null);
-  const [scanningCoords, setScanningCoords] = useState(null);
+  const [activeSection, setActiveSection] = useState('intelligence');
   const [predictionResult, setPredictionResult] = useState(null);
-  const [isScanning, setIsScanning] = useState(false);
-  const [activeFeatures, setActiveFeatures] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isBriefOpen, setIsBriefOpen] = useState(false);
 
-  // --- DATA FETCHING (HISTORICAL) ---
+  // --- SYNC WITH HASH ---
   useEffect(() => {
-    fetch('http://127.0.0.1:5000/api/seismic-data')
-      .then(res => res.json())
-      .then(data => setHistoricalData(data))
-      .catch(err => console.error("History Feed Fault:", err));
+    const handleHash = () => {
+      const hash = window.location.hash.replace('#', '');
+      if (['intelligence', 'surveillance', 'simulation', 'analysis', 'dossier'].includes(hash)) {
+        setActiveSection(hash);
+      }
+    };
+    window.addEventListener('hashchange', handleHash);
+    handleHash();
+    return () => window.removeEventListener('hashchange', handleHash);
   }, []);
 
-  // --- PREDICTION LOGIC ---
-  const handleScanInitiated = async (lat, lon, depth) => {
-    if (!lat || !lon || !depth) return;
+  useEffect(() => {
+    window.location.hash = activeSection;
+    window.scrollTo(0, 0);
+  }, [activeSection]);
 
-    setIsScanning(true);
-    setScanningCoords([parseFloat(lat), parseFloat(lon)]);
-    addLog(`INIT SCAN: [${lat}, ${lon}] @ ${depth}KM`);
-
+  const handlePredict = async (lat, lon, depth) => {
+    setIsLoading(true);
     try {
       const response = await fetch('http://127.0.0.1:5000/api/predict', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lat, lon: lon, depth }) // Note: Backend expects 'lon' not 'lng'
+        body: JSON.stringify({ lat, lon, depth })
       });
-      
       const result = await response.json();
-      
       if (result.status === 'success') {
         setPredictionResult(result);
-        addLog(`SCAN SUCCESS: ${result.prediction} HAZARD DETECTED.`);
-      } else {
-        addLog(`SCAN FAULT: ${result.message}`);
       }
     } catch (err) {
-      addLog(`SYSTEM CRITICAL: API CONNECTION REFUSED.`);
+      console.error(err);
     } finally {
-      setIsScanning(false);
+      setIsLoading(false);
     }
   };
 
-  // Log sharing between components
-  const [logs, setLogs] = useState([]);
-  const addLog = (msg) => {
-    const entry = { type: 'auto', msg };
-    setLogs(prev => [...prev.slice(-15), entry]);
+  const renderContent = () => {
+    switch (activeSection) {
+      case 'intelligence':
+        return (
+          <IntelligenceView 
+            onPredict={handlePredict} 
+            predictionResult={predictionResult}
+            isLoading={isLoading}
+          />
+        );
+      case 'surveillance':
+        return <SurveillanceView />;
+      case 'simulation':
+        return <SimulationView />;
+      case 'analysis':
+        return <ResearchView />;
+      case 'dossier':
+        return <DossierView />;
+      default:
+        return <IntelligenceView onPredict={handlePredict} />;
+    }
   };
 
   return (
-    <div className="dashboard-grid">
-      <GisCenter 
-        historicalData={historicalData} 
-        scanningCoords={scanningCoords} 
+    <div className="magazine-root">
+      <Header activeSection={activeSection} setActiveSection={setActiveSection} />
+      
+      <main>
+        <AnimatePresence mode="wait">
+          {renderContent()}
+        </AnimatePresence>
+      </main>
+
+      {/* GLOBAL (i) TRIGGER */}
+      <button 
+        className="info-trigger" 
+        onClick={() => setIsBriefOpen(true)}
+        title="Intelligence Brief"
+      >
+        i
+      </button>
+
+      {/* BRIEF OVERLAY */}
+      <BriefOverlay 
+        isOpen={isBriefOpen} 
+        onClose={() => setIsBriefOpen(false)} 
+        context={activeSection}
       />
 
-      <TacticalHud 
-        onScanInitiated={handleScanInitiated} 
-        isScanning={isScanning}
-        predictionResult={predictionResult}
-      />
-
-      <MlMonitor predictionResult={predictionResult} />
-
-      <IndustrialLog externalLogs={logs} />
+      <style jsx="true">{`
+        .magazine-root {
+          min-height: 100vh;
+          background-color: var(--bg-cream);
+          display: flex;
+          flex-direction: column;
+        }
+        .placeholder-view {
+          min-height: 60vh;
+        }
+        .placeholder-content {
+          font-size: 2rem;
+          color: var(--text-charcoal);
+          opacity: 0.3;
+          height: 100%;
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+          align-items: center;
+          text-align: center;
+          padding: 100px 40px;
+          border: 1px dashed rgba(29, 29, 31, 0.1);
+        }
+        .data-desk-imagery {
+          height: 100%;
+          display: flex;
+          flex-direction: column;
+        }
+        .cover-img.grayscale {
+          filter: grayscale(1) contrast(1.1);
+          opacity: 0.8;
+          height: 80vh;
+          object-fit: cover;
+        }
+      `}</style>
     </div>
   );
 };

@@ -1,4 +1,5 @@
 from flask import Flask, render_template, jsonify, request
+from flask_cors import CORS
 import joblib
 import pandas as pd
 import numpy as np
@@ -6,6 +7,7 @@ import os
 from datetime import datetime
 
 app = Flask(__name__)
+CORS(app)
 
 # --- SYSTEM INITIALIZATION ---
 ARTIFACTS = {
@@ -30,7 +32,12 @@ load_system()
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    return jsonify({
+        "status": "online",
+        "system": "SeismoSense Intelligence Core",
+        "version": "4.2.0",
+        "endpoints": ["/api/predict", "/api/historical_dataset"]
+    })
 
 @app.route('/api/seismic-data')
 def get_historical_data():
@@ -66,21 +73,41 @@ def predict_hazard():
         lon = float(data['lon'])
         depth = float(data['depth'])
         
+        # --- FEATURE ENGINEERING (DYNAMIC CONTEXT) ---
         now = datetime.now()
         
-        # Prepare Feature Vector: [lat, lon, depth, hour, month, dow, tsl, zone]
-        # 'tsl' is simulated at 24h, 'zone' is defaulted to -1 (generic crustal activity)
-        features = [lat, lon, depth, now.hour, now.month, now.weekday(), 24.0, -1]
+        # 1. Calculate TSL (Time Since Last) relative to our dataset
+        tsl = 24.0 # Default
+        if os.path.exists('processed_seismic_data.csv'):
+            df_hist = pd.read_csv('processed_seismic_data.csv')
+            df_hist['time'] = pd.to_datetime(df_hist['time'])
+            latest_time = df_hist['time'].max()
+            tsl = (now - latest_time).total_seconds() / 3600
+        
+        # 2. Estimate Zone (DBSCAN fallback)
+        # Find the nearest known point in our processed data and use its zone
+        zone = -1
+        if os.path.exists('processed_seismic_data.csv'):
+            df_hist = pd.read_csv('processed_seismic_data.csv')
+            # Simple Euclidean distance for zone estimation
+            distances = np.sqrt((df_hist['lat'] - lat)**2 + (df_hist['lon'] - lon)**2)
+            nearest_idx = distances.idxmin()
+            zone = int(df_hist.iloc[nearest_idx]['zone'])
+
+        # Prepare Feature Vector: [lat, lon, depth, hour, month, day_of_week, tsl, zone]
+        features = [lat, lon, depth, now.hour, now.month, now.weekday(), tsl, zone]
         input_df = pd.DataFrame([features], columns=['lat', 'lon', 'depth', 'hour', 'month', 'day_of_week', 'tsl', 'zone'])
         
+        # --- ML INFERENCE ---
         # 1. Classification
         pred_idx = app.model.predict(input_df)[0]
         hazard_class = app.le.inverse_transform([pred_idx])[0]
         confidence = np.max(app.model.predict_proba(input_df)[0])
         
-        # 2. Risk Score Synthesis
-        # Risk = 0.5*MagScale + 0.3*DepthImpact + 0.2*DensityProxy
-        mag_proxy = 0.4 if hazard_class == 'LOW' else (0.7 if hazard_class == 'MEDIUM' else 0.95)
+        # 2. Risk Score Synthesis (Mapping back to notebook logic)
+        # Result = (0.5 * norm_mag + 0.3 * norm_depth + 0.2 * 0.5) * 10
+        # For norm_mag, we use proxies based on hazard class: LOW=0.3, MED=0.6, HIGH=0.9
+        mag_proxy = 0.3 if hazard_class == 'LOW' else (0.6 if hazard_class == 'MEDIUM' else 0.9)
         depth_norm = 1 - (min(depth, 700) / 700)
         risk_score = (0.5 * mag_proxy + 0.3 * depth_norm + 0.2 * 0.5) * 10
         
@@ -89,12 +116,29 @@ def predict_hazard():
             "prediction": hazard_class,
             "confidence": f"{confidence*100:.1f}%",
             "risk_score": round(risk_score, 2),
-            "threat_level": "LEVEL 3" if risk_score > 7.5 else ("LEVEL 2" if risk_score > 4.5 else "LEVEL 1"),
+            "threat_level": "CRITICAL" if risk_score > 7.5 else ("ELEVATED" if risk_score > 4.5 else "NOMINAL"),
+            "context": {
+                "tsl_hours": round(tsl, 1),
+                "estimated_zone": zone
+            },
             "timestamp": now.strftime("%Y-%m-%d %H:%M:%S")
         })
         
     except Exception as e:
         return jsonify({"status": "error", "message": f"Processing Fault: {str(e)}"})
+
+@app.route('/api/historical_dataset')
+def get_historical_dataset():
+    if not os.path.exists('processed_seismic_data.csv'):
+        return jsonify({"status": "error", "message": "Dataset not found"})
+    
+    df = pd.read_csv('processed_seismic_data.csv')
+    # Replace NaN with None for valid JSON serialization
+    df_clean = df.replace({np.nan: None})
+    return jsonify({
+        "status": "success",
+        "data": df_clean.to_dict(orient='records')
+    })
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
