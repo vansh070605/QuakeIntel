@@ -1,0 +1,112 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=JetBrains+Mono:wght@400;700&display=swap');
+
+:root {
+  /* Core Palette */
+  --bg-dark: #020617;
+  --panel-bg: rgba(15, 23, 42, 0.7);
+  --glass-bg: rgba(255, 255, 255, 0.03);
+  
+  /* Tactical Accents */
+  --neon-cyan: #06b6d4;
+  --neon-amber: #f59e0b;
+  --neon-red: #ef4444;
+  --neon-green: #10b981;
+  
+  /* Borders & Shadows */
+  --border-dim: rgba(255, 255, 255, 0.08);
+  --border-cyan: rgba(6, 182, 212, 0.3);
+  --border-amber: rgba(245, 158, 11, 0.3);
+  --glow-cyan: 0 0 15px rgba(6, 182, 212, 0.2);
+  
+  /* Fonts */
+  --font-sans: 'Inter', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background-color: var(--bg-dark);
+  color: #e2e8f0;
+  font-family: var(--font-sans);
+  overflow: hidden; /* Full-screen dashboard */
+  width: 100vw;
+  height: 100vh;
+}
+
+/* Base HUD Container: Interleaved Grid */
+.dashboard-grid {
+  display: grid;
+  grid-template-areas: 
+    "hud-left gis-main ml-panel"
+    "hud-left gis-main terminal";
+  grid-template-columns: 360px 1fr 400px;
+  grid-template-rows: 1fr 300px;
+  width: 100vw;
+  height: 100vh;
+  gap: 12px;
+  padding: 12px;
+  background-color: var(--bg-dark);
+}
+
+/* Glassmorphism Base */
+.glass-panel {
+  background: var(--panel-bg);
+  backdrop-filter: blur(12px) saturate(180%);
+  -webkit-backdrop-filter: blur(12px) saturate(180%);
+  border: 1px solid var(--border-dim);
+  border-radius: 4px;
+}
+
+/* Animations */
+@keyframes scanline {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100vh); }
+}
+
+.scanline {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: linear-gradient(to right, transparent, var(--neon-cyan), transparent);
+  opacity: 0.3;
+  pointer-events: none;
+  animation: scanline 8s linear infinite;
+  z-index: 10;
+}
+
+@keyframes pulse-dot {
+  0% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.8); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+.record-dot {
+  width: 8px;
+  height: 8px;
+  background: var(--neon-red);
+  border-radius: 50%;
+  animation: pulse-dot 2s infinite ease-in-out;
+  box-shadow: 0 0 8px var(--neon-red);
+}
+
+/* Scrollbar Styling for Industrial feel */
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-dim);
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--neon-cyan);
+}
