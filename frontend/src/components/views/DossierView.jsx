@@ -11,13 +11,19 @@ const DossierView = () => {
           
           <div className="mt-xl" style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '80px', alignItems: 'start' }}>
             <div className="dossier-narrative">
-              <p className="serif italic" style={{ fontSize: '1.8rem', lineHeight: '1.4' }}>
-                "Our mission is to bridge the gap between geological uncertainty and digital absolute."
-              </p>
-              <div className="divider-minimal mt-xl"></div>
-              <p className="mt-xl text-muted" style={{ fontSize: '1.1rem', lineHeight: '1.8' }}>
-                QuakeIntel represents the synthesis of multi-decade seismic archives and state-of-the-art machine learning. By deconstructing the planet's fractures into a manageable feature set—Lateral Position, Temporal Quiescence, and Spatial Zoning—we provide a granular assessment of global hazard potential.
-              </p>
+              <section className="problem-statement">
+                <label style={{ fontSize: '0.6rem', fontWeight: 800, opacity: 0.5 }}>PROBLEM_STATEMENT</label>
+                <p className="mt-md" style={{ fontSize: '1.2rem', lineHeight: '1.6', color: 'var(--text-charcoal)' }}>
+                  Increasing global seismic volatility requires low-latency, high-precision hazard modeling. Conventional geophysical methods often fail to capture the multi-dimensional complexity of plate interface dynamics in real-time.
+                </p>
+              </section>
+
+              <section className="the-solution mt-xl">
+                <label style={{ fontSize: '0.6rem', fontWeight: 800, opacity: 0.5 }}>THE_SOLUTION</label>
+                <p className="mt-md text-muted" style={{ fontSize: '1rem', lineHeight: '1.8' }}>
+                  QuakeIntel (SeismoSense v4.2) bridges this gap using a hybrid GIS-XGBoost pipeline. By synthesizing spatial clustering (DBSCAN) with temporal quiescence analysis, we provide a granular "Risk Score" for any coordinate on the lithospheric grid. Our model identifies subduction-zone instabilities before they manifest as surface-level catastrophes.
+                </p>
+              </section>
             </div>
 
             <div className="dossier-spec" style={{ borderLeft: '1px solid rgba(0,0,0,0.05)', paddingLeft: '40px' }}>

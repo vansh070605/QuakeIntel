@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Stars, PerspectiveCamera } from '@react-three/drei';
 import * as THREE from 'three';
+import { useLoader } from '@react-three/fiber';
 import { motion } from 'framer-motion';
 
 // --- GEOGRAPHIC UTILS ---
@@ -33,7 +34,8 @@ const SeismicNodes = ({ data }) => {
           <meshBasicMaterial 
             color={p.risk_score > 7 ? '#ff3333' : p.risk_score > 4 ? '#ff9900' : '#00ff00'} 
             transparent 
-            opacity={0.8} 
+            opacity={0.6}
+            depthWrite={false}
           />
         </mesh>
       ))}
@@ -45,28 +47,45 @@ const SeismicNodes = ({ data }) => {
 const Earth = () => {
   const earthRef = useRef();
   
+  // High-fidelity topographic/satellite textures
+  const [colorMap, bumpMap] = useLoader(THREE.TextureLoader, [
+    'https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg',
+    'https://unpkg.com/three-globe/example/img/earth-topology.png'
+  ]);
+
+  const [faultData, setFaultData] = useState(null);
+
+  useEffect(() => {
+    fetch('https://raw.githubusercontent.com/fraxen/tectonicplates/master/GeoJSON/PB2002_boundaries.json')
+      .then(res => res.json())
+      .then(data => setFaultData(data));
+  }, []);
+
   return (
     <group ref={earthRef}>
       {/* ATMOSPHERE GLOW */}
-      <mesh scale={[1.02, 1.02, 1.02]}>
+      <mesh scale={[1.025, 1.025, 1.025]}>
         <sphereGeometry args={[5, 64, 64]} />
         <meshPhongMaterial 
-          color="#4488ff" 
+          color="#88ccff" 
           transparent 
-          opacity={0.1} 
+          opacity={0.15} 
           side={THREE.BackSide}
           blending={THREE.AdditiveBlending}
         />
       </mesh>
 
-      {/* EARTH SHELL */}
+      {/* EARTH CORE WITH TEXTURE */}
       <mesh>
         <sphereGeometry args={[5, 64, 64]} />
         <meshStandardMaterial 
-          color="#112233" 
+          map={colorMap}
+          bumpMap={bumpMap}
+          bumpScale={0.05}
           roughness={0.7}
-          metalness={0.2}
-          emissive="#000"
+          metalness={0.1}
+          emissive="#112233"
+          emissiveIntensity={0.1}
         />
       </mesh>
       
@@ -75,6 +94,21 @@ const Earth = () => {
         <sphereGeometry args={[5, 32, 32]} />
         <meshBasicMaterial color="#ffffff" wireframe transparent opacity={0.05} />
       </mesh>
+
+      {/* TECTONIC PLATES OVERLAY */}
+      {faultData && faultData.features.map((feature, idx) => {
+        const points = feature.geometry.coordinates.map(coord => 
+          latLonToVector3(coord[1], coord[0], 5.01)
+        );
+        const curve = new THREE.CatmullRomCurve3(points);
+        const geometry = new THREE.BufferGeometry().setFromPoints(curve.getPoints(50));
+        
+        return (
+          <line key={idx} geometry={geometry}>
+            <lineBasicMaterial color="#ff7700" linewidth={1} transparent opacity={0.4} />
+          </line>
+        );
+      })}
     </group>
   );
 };
@@ -104,8 +138,9 @@ const SimulationView = () => {
           autoRotateSpeed={0.5}
         />
         
-        <ambientLight intensity={0.5} />
-        <pointLight position={[10, 10, 10]} intensity={1.5} />
+        <ambientLight intensity={0.8} />
+        <pointLight position={[10, 10, 10]} intensity={2.5} />
+        <spotLight position={[-10, 10, 10]} angle={0.3} penumbra={1} intensity={2} color="#4488ff" />
         <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={1} />
         
         <Earth />

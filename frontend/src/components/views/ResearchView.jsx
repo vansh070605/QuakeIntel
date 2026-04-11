@@ -4,29 +4,35 @@ import { motion } from 'framer-motion';
 const ResearchView = () => {
   const features = [
     {
+      id: "ZONE",
+      name: "Spatial Zone (DBSCAN)",
+      desc: "Using Density-Based Spatial Clustering (DBSCAN), we identify localized seismic 'neighborhoods'. This is the model's most critical feature, as tectonic stress is highly region-specific.",
+      importance: "0.45"
+    },
+    {
       id: "TSL",
       name: "Time Since Last",
       desc: "Measures the temporal gap between seismic pulses. Our research shows that 'quiescence'—the silence between quakes—is a primary indicator of pressure accumulation.",
-      importance: "0.42"
+      importance: "0.18"
     },
     {
-      id: "ZONE",
-      name: "Spatial Cluster (DBSCAN)",
-      desc: "Using Density-Based Spatial Clustering of Applications with Noise (DBSCAN), we identify persistent seismic 'neighborhoods'. The zone ID correlates strongly with local plate interface dynamics.",
-      importance: "0.28"
-    },
-    {
-      id: "TEMP",
-      name: "Temporal Cycles",
-      desc: "Analyzing 'hour' and 'day_of_week' captures subtle variations in sensor sensitivity and tidal/environmental noise patterns that refine model precision.",
-      importance: "0.15"
+      id: "DEPTH",
+      name: "Lithospheric Depth",
+      desc: "The vertical coordinate of the event. Subduction zone quakes behave differently at varying depths (0-700km), directly impacting the surface hazard potential.",
+      importance: "0.12"
     },
     {
       id: "GEO",
-      name: "3D Coordinates",
-      desc: "Depth, Latitude, and Longitude form the spatial anchor. The model evaluates risk gradients specifically across subduction trenches and transform boundaries.",
-      importance: "0.15"
+      name: "Spatial Coordinates",
+      desc: "Latitude and Longitude form the spatial anchor. The model evaluates risk gradients specifically across subduction trenches and transform boundaries.",
+      importance: "0.25"
     }
+  ];
+
+  const metrics = [
+    { label: "ULTIMATE ACCURACY", value: "98.17%", color: "#080" },
+    { label: "F1 STABILITY SCORE", value: "0.9726", color: "#080" },
+    { label: "TRAINING RECORDS", value: "72,508", color: "var(--text-charcoal)" }
   ];
 
   return (
@@ -38,6 +44,22 @@ const ResearchView = () => {
             "Deconstructing the SeismoSense Intelligence Core: Feature Engineering for Global Resilience."
           </p>
         </motion.div>
+
+        {/* METRICS HUD */}
+        <div className="metrics-hud mt-xl" style={{ display: 'flex', gap: '30px', borderBottom: '1px solid rgba(0,0,0,0.05)', paddingBottom: '40px' }}>
+          {metrics.map((m, i) => (
+            <motion.div 
+              key={m.label}
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: i * 0.1 }}
+              className="metric-pill"
+            >
+              <label style={{ fontSize: '0.6rem', letterSpacing: '0.2em', opacity: 0.5, fontWeight: 800 }}>{m.label}</label>
+              <div className="serif" style={{ fontSize: '2.5rem', color: m.color }}>{m.value}</div>
+            </motion.div>
+          ))}
+        </div>
 
         <div className="feature-grid mt-xl" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '40px' }}>
           {features.map((f, i) => (
