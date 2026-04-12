@@ -1,6 +1,6 @@
 <div align="center">
 
-![QUAKEINTEL Banner](file:///C:/Users/Vansh%20Agrawal/.gemini/antigravity/brain/80e7e3a6-1d93-4d82-b7c2-489aa636e3b1/quakeintel_hero_branding_1775971579821.png)
+![QUAKEINTEL Banner](frontend/src/assets/quakeintel_hero_branding_1775971579821.png)
 
 # QUAKEINTEL: PROJECT SEISMOSENSE v4.3.5
 ### Universal Seismic Synthesis & Global Hazard Intelligence
