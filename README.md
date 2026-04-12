@@ -113,5 +113,4 @@ QUAKEINTEL/
 ---
 <div align="center">
   <p className="serif italic">"Building structural resilience through digital surveillance."</p>
-  <p><strong>Developed by ANTIGRAVITY / PROJECT SEISMOSENSE</strong></p>
 </div>
