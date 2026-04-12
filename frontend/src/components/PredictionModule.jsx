@@ -75,13 +75,13 @@ const PredictionModule = ({ onPredict, predictionResult, isLoading, externalCoor
               style={{ width: '100%', maxWidth: '100%', marginTop: '24px' }}
             >
               <div className="report-header">
-                <span className="serif">CONFIDENTIAL REPORT</span>
+                <span className="serif">CONFIDENTIAL REPORT / {predictionResult.hazard_type || activeHazard} — </span>
                 <span className="report-id">SCAN_READY</span>
               </div>
               
               <div className="report-content">
                 <div className="result-row">
-                  <span className="label">HAZARD POTENTIAL</span>
+                  <span className="label">{predictionResult.hazard_label || 'HAZARD POTENTIAL'}</span>
                   <span className={`value serif ${predictionResult.prediction.toLowerCase()}`} style={{ fontWeight: 800 }}>
                     {predictionResult.prediction}
                   </span>

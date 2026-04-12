@@ -59,61 +59,64 @@ def predict_hazard():
         lat = float(data['lat'])
         lon = float(data['lon'])
         depth = float(data['depth'])
+        hazard_type = data.get('hazard_type', 'SEISMIC').upper()
         now = datetime.now()
         
-        # --- ENHANCED FEATURE ENGINEERING (v4.3) ---
-        # 1. TSL Calibration
+        # --- ENHANCED FEATURE ENGINEERING ---
         df_hist = app.historical_data
         df_hist['time'] = pd.to_datetime(df_hist['time'])
         tsl = (now - df_hist['time'].max()).total_seconds() / 3600
         
-        # 2. Zone & Severity lookup (Nearest-Neighbor Spatial Context)
         distances = np.sqrt((df_hist['lat'] - lat)**2 + (df_hist['lon'] - lon)**2)
         nearest_idx = distances.idxmin()
         zone = int(df_hist.iloc[nearest_idx]['zone'])
-        zone_severity = app.zone_severity_map.get(zone, 4.5) # Default to low if unknown
+        zone_severity = app.zone_severity_map.get(zone, 4.5)
 
-        # Feature Vector: [lat, lon, depth, hour, month, day_of_week, tsl, zone, zone_severity]
         features = [lat, lon, depth, now.hour, now.month, now.weekday(), tsl, zone, zone_severity]
         input_df = pd.DataFrame([features], columns=['lat', 'lon', 'depth', 'hour', 'month', 'day_of_week', 'tsl', 'zone', 'zone_severity'])
         
-        # --- PROBABILISTIC INFERENCE ---
+        # Probabilistic Base
         probs = app.model.predict_proba(input_df)[0]
         class_probs = dict(zip(app.le.classes_, probs))
-        
-        # Determine the winner
-        hazard_class = app.le.classes_[np.argmax(probs)]
-        confidence = np.max(probs)
-        
-        # --- SCIENTIFIC ACCURACY (v4.3.2) ---
-        # 1. Exponential Depth Decay: Hazard potential drops exponentially with depth.
-        # Constant of 120km: at 120km risk is 36%, at 600km risk is <1%.
-        depth_decay = np.exp(-depth / 120.0)
-        
-        # 2. Risk Score math:
         high_risk_prob = class_probs.get('HIGH', 0.0)
         med_risk_prob = class_probs.get('MEDIUM', 0.0)
-        severity_factor = (zone_severity / 10)
         
-        # Base score from regional probability + historical severity
-        base_score = (high_risk_prob * 8.0 + med_risk_prob * 4.0 + severity_factor * 2.0)
-        risk_score = base_score * depth_decay
+        # --- MULTI-HAZARD SCORING MATRIX ---
+        depth_decay = np.exp(-depth / 120.0)
+        base_risk = (high_risk_prob * 8.0 + med_risk_prob * 4.0 + (zone_severity / 10) * 2.0)
+        
+        if hazard_type == 'TSUNAMI':
+            # Tsunami specific: requires high magnitude, shallow depth, and usually coastal
+            # Depth < 50km is critical for tsunamis
+            tsunami_multiplier = 1.5 if depth < 50 else (0.1 if depth > 100 else 0.5)
+            # Higher weight on 'HIGH' probability (which correlates with high magnitude)
+            risk_score = (high_risk_prob * 12.0 + (zone_severity / 10) * 3.0) * tsunami_multiplier
+            hazard_label = "SURGE_RISK"
+        elif hazard_type == 'VULNERABILITY':
+            # Infrastructure focus: heavily weighted by spatial severity (urban density proxy)
+            risk_score = (high_risk_prob * 5.0 + med_risk_prob * 3.0 + (zone_severity / 10) * 5.0) * depth_decay
+            hazard_label = "STRUCTURE_LOSS"
+        else: # SEISMIC
+            risk_score = base_risk * depth_decay
+            hazard_label = "TECTONIC_SHIFT"
+
+        # Normalize 0.5 - 10.0
         risk_score = min(max(risk_score, 0.5), 10.0)
         
-        # 3. Physical Safety Ceiling (v4.3.2 GATE)
-        # Deep events (300km+) are physically incapable of surface hazard.
-        if depth >= 300:
+        # Physical Safety Ceiling
+        if depth >= 300 and hazard_type != 'TSUNAMI': # Tsunamis are always surface-impact
             threat_level = "NOMINAL"
             final_hazard = "LOW"
-            risk_score = min(risk_score, 2.5) # Force low score for deep quakes
+            risk_score = min(risk_score, 2.5)
         else:
             threat_level = "CRITICAL" if risk_score >= 6.8 else ("ELEVATED" if risk_score > 4.5 else "NOMINAL")
-            final_hazard = "HIGH" if risk_score >= 6.5 or (high_risk_prob > 0.4 and depth < 50) else hazard_class
+            final_hazard = "HIGH" if risk_score >= 6.5 else ("MEDIUM" if risk_score > 4.0 else "LOW")
 
         return jsonify({
             "status": "success",
             "prediction": str(final_hazard),
-            "confidence": f"{float(confidence)*100:.1f}%",
+            "hazard_label": hazard_label,
+            "hazard_type": hazard_type,
             "risk_score": round(float(risk_score), 2),
             "threat_level": str(threat_level),
             "context": {

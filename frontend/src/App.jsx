@@ -7,7 +7,6 @@ import BriefOverlay from './components/BriefOverlay';
 import IntelligenceView from './components/views/IntelligenceView';
 import SurveillanceView from './components/views/SurveillanceView';
 import SimulationView from './components/views/SimulationView';
-import ResearchView from './components/views/ResearchView';
 import DossierView from './components/views/DossierView';
 
 const App = () => {
@@ -20,7 +19,7 @@ const App = () => {
   useEffect(() => {
     const handleHash = () => {
       const hash = window.location.hash.replace('#', '');
-      if (['intelligence', 'surveillance', 'simulation', 'analysis', 'dossier'].includes(hash)) {
+      if (['intelligence', 'surveillance', 'simulation', 'dossier'].includes(hash)) {
         setActiveSection(hash);
       }
     };
@@ -34,13 +33,13 @@ const App = () => {
     window.scrollTo(0, 0);
   }, [activeSection]);
 
-  const handlePredict = async (lat, lon, depth) => {
+  const handlePredict = async (lat, lon, depth, hazardType = 'SEISMIC') => {
     setIsLoading(true);
     try {
       const response = await fetch('http://127.0.0.1:5000/api/predict', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lat, lon, depth })
+        body: JSON.stringify({ lat, lon, depth, hazard_type: hazardType })
       });
       const result = await response.json();
       if (result.status === 'success') {
@@ -67,8 +66,6 @@ const App = () => {
         return <SurveillanceView />;
       case 'simulation':
         return <SimulationView />;
-      case 'analysis':
-        return <ResearchView />;
       case 'dossier':
         return <DossierView />;
       default:

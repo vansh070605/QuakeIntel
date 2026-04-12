@@ -1,9 +1,8 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, Stars, PerspectiveCamera } from '@react-three/drei';
+import React, { useState, useEffect, useRef, useMemo, Suspense } from 'react';
+import { Canvas, useFrame, useLoader } from '@react-three/fiber';
+import { OrbitControls, Stars, PerspectiveCamera, Html } from '@react-three/drei';
 import * as THREE from 'three';
-import { useLoader } from '@react-three/fiber';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 
 // --- GEOGRAPHIC UTILS ---
 const latLonToVector3 = (lat, lon, radius) => {
@@ -15,182 +14,280 @@ const latLonToVector3 = (lat, lon, radius) => {
   return new THREE.Vector3(x, y, z);
 };
 
-// --- DATA POINT COMPONENT ---
-const SeismicNodes = ({ data }) => {
+// --- INSTANCED SEISMIC NODES ---
+const SeismicNodes = ({ data, onHover }) => {
+  const meshRef = useRef();
+  const tempObject = new THREE.Object3D();
+
   const points = useMemo(() => {
-    return data.map(p => {
-      // Map depth to a vector slightly below surface
-      // Radius of Earth shell is 5, depth is scaled
+    return (data || []).map(p => {
       const adjustedRadius = 5 - (p.depth / 200); 
       return latLonToVector3(p.lat, p.lon, adjustedRadius);
     });
   }, [data]);
 
+  useFrame(() => {
+    if (!meshRef.current || !data) return;
+    
+    data.forEach((p, i) => {
+      const pos = points[i];
+      if (!pos) return;
+      tempObject.position.set(pos.x, pos.y, pos.z);
+      
+      const pulse = 1 + Math.sin(Date.now() * 0.003 + i) * 0.15;
+      const scale = (p.mag * 0.015) * pulse;
+      tempObject.scale.set(scale, scale, scale);
+      
+      tempObject.updateMatrix();
+      meshRef.current.setMatrixAt(i, tempObject.matrix);
+      
+      const color = new THREE.Color(
+        p.risk_score > 7 ? '#ef4444' : p.risk_score > 4 ? '#f97316' : '#22c55e'
+      );
+      meshRef.current.setColorAt(i, color);
+    });
+    meshRef.current.instanceMatrix.needsUpdate = true;
+    if (meshRef.current.instanceColor) meshRef.current.instanceColor.needsUpdate = true;
+  });
+
+  if (!data || data.length === 0) return null;
+
   return (
-    <group>
-      {data.map((p, i) => (
-        <mesh key={i} position={points[i]}>
-          <sphereGeometry args={[p.mag * 0.015, 8, 8]} />
-          <meshBasicMaterial 
-            color={p.risk_score > 7 ? '#ff3333' : p.risk_score > 4 ? '#ff9900' : '#00ff00'} 
-            transparent 
-            opacity={0.6}
-            depthWrite={false}
-          />
-        </mesh>
-      ))}
-    </group>
+    <instancedMesh 
+      ref={meshRef} 
+      args={[null, null, data.length]}
+      onPointerOver={(e) => {
+        e.stopPropagation();
+        onHover(data[e.instanceId]);
+      }}
+      onPointerOut={() => onHover(null)}
+    >
+      <sphereGeometry args={[1, 12, 12]} />
+      <meshBasicMaterial transparent opacity={0.6} depthWrite={false} />
+    </instancedMesh>
   );
 };
 
-// --- EARTH CORE ---
-const Earth = () => {
-  const earthRef = useRef();
+// --- REALISTIC WORLD (Earth + Nodes) ---
+const RealisticWorld = ({ children, isRotating }) => {
+  const groupRef = useRef();
+  const cloudRef = useRef();
   
-  // High-fidelity topographic/satellite textures
-  const [colorMap, bumpMap] = useLoader(THREE.TextureLoader, [
+  const [dayMap, nightMap, bumpMap, cloudMap] = useLoader(THREE.TextureLoader, [
     'https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg',
-    'https://unpkg.com/three-globe/example/img/earth-topology.png'
+    'https://unpkg.com/three-globe/example/img/earth-night.jpg',
+    'https://unpkg.com/three-globe/example/img/earth-topology.png',
+    'https://clouds.matteason.co.uk/images/4096x2048/clouds.jpg'
   ]);
 
-  const [faultData, setFaultData] = useState(null);
-
-  useEffect(() => {
-    fetch('https://raw.githubusercontent.com/fraxen/tectonicplates/master/GeoJSON/PB2002_boundaries.json')
-      .then(res => res.json())
-      .then(data => setFaultData(data));
-  }, []);
+  useFrame(() => {
+    if (!isRotating || !groupRef.current) return;
+    groupRef.current.rotation.y += 0.0005;
+    if (cloudRef.current) cloudRef.current.rotation.y += 0.0002; // Extra relative speed
+  });
 
   return (
-    <group ref={earthRef}>
-      {/* ATMOSPHERE GLOW */}
-      <mesh scale={[1.025, 1.025, 1.025]}>
+    <group>
+      {/* STATIONARY ATMOSPHERE HALO */}
+      <mesh scale={[1.15, 1.15, 1.15]}>
         <sphereGeometry args={[5, 64, 64]} />
-        <meshPhongMaterial 
+        <meshBasicMaterial 
           color="#88ccff" 
           transparent 
-          opacity={0.15} 
+          opacity={0.05} 
           side={THREE.BackSide}
           blending={THREE.AdditiveBlending}
         />
       </mesh>
 
-      {/* EARTH CORE WITH TEXTURE */}
-      <mesh>
-        <sphereGeometry args={[5, 64, 64]} />
-        <meshStandardMaterial 
-          map={colorMap}
-          bumpMap={bumpMap}
-          bumpScale={0.05}
-          roughness={0.7}
-          metalness={0.1}
-          emissive="#112233"
-          emissiveIntensity={0.1}
-        />
-      </mesh>
-      
-      {/* GRID OVERLAY */}
-      <mesh scale={[1.001, 1.001, 1.001]}>
-        <sphereGeometry args={[5, 32, 32]} />
-        <meshBasicMaterial color="#ffffff" wireframe transparent opacity={0.05} />
-      </mesh>
-
-      {/* TECTONIC PLATES OVERLAY */}
-      {faultData && faultData.features.map((feature, idx) => {
-        const points = feature.geometry.coordinates.map(coord => 
-          latLonToVector3(coord[1], coord[0], 5.01)
-        );
-        const curve = new THREE.CatmullRomCurve3(points);
-        const geometry = new THREE.BufferGeometry().setFromPoints(curve.getPoints(50));
+      {/* ROTATING BASE (Earth + Nodes) */}
+      <group ref={groupRef}>
+        <mesh receiveShadow>
+          <sphereGeometry args={[5, 128, 128]} />
+          <meshStandardMaterial 
+            map={dayMap}
+            bumpMap={bumpMap}
+            bumpScale={0.15}
+            emissiveMap={nightMap}
+            emissive={new THREE.Color('#ffffcc')}
+            emissiveIntensity={1.2}
+            roughness={0.8}
+            metalness={0.1}
+          />
+        </mesh>
         
-        return (
-          <line key={idx} geometry={geometry}>
-            <lineBasicMaterial color="#ff7700" linewidth={1} transparent opacity={0.4} />
-          </line>
-        );
-      })}
+        {/* Dynamic Nodes now live here to rotate WITH the earth */}
+        {children}
+
+        {/* CLOUD LAYER (Inside group to inherit base spin, plus extra) */}
+        <mesh ref={cloudRef} scale={[1.008, 1.008, 1.008]}>
+          <sphereGeometry args={[5, 64, 64]} />
+          <meshStandardMaterial 
+            map={cloudMap}
+            transparent
+            opacity={0.25}
+            depthWrite={false}
+            blending={THREE.AdditiveBlending}
+          />
+        </mesh>
+      </group>
     </group>
   );
 };
 
 const SimulationView = () => {
   const [data, setData] = useState([]);
+  const [hoveredNode, setHoveredNode] = useState(null);
+  const [isRotating, setIsRotating] = useState(true);
 
   useEffect(() => {
     fetch('http://127.0.0.1:5000/api/historical_dataset')
       .then(res => res.json())
       .then(result => {
         if (result.status === 'success') {
-          setData(result.data.slice(0, 1000));
+          setData(result.data.slice(0, 5000));
         }
-      });
+      })
+      .catch(err => console.error("Data Load Fault:", err));
   }, []);
 
   return (
-    <div className="full-screen-canvas" style={{ background: '#000', position: 'relative' }}>
-      <Canvas dpr={[1, 2]}>
+    <div className="full-screen-canvas" style={{ background: '#000000', position: 'relative' }}>
+      <Canvas dpr={[1, 2]} shadows>
         <PerspectiveCamera makeDefault position={[0, 0, 15]} />
         <OrbitControls 
           enablePan={false} 
-          minDistance={7} 
-          maxDistance={25}
-          autoRotate
-          autoRotateSpeed={0.5}
+          minDistance={6} 
+          maxDistance={30}
+          autoRotate={isRotating}
+          autoRotateSpeed={0.3}
         />
         
-        <ambientLight intensity={0.8} />
-        <pointLight position={[10, 10, 10]} intensity={2.5} />
-        <spotLight position={[-10, 10, 10]} angle={0.3} penumbra={1} intensity={2} color="#4488ff" />
-        <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={1} />
+        <ambientLight intensity={0.4} />
         
-        <Earth />
-        <SeismicNodes data={data} />
+        <directionalLight 
+          position={[10, 5, 10]} 
+          intensity={2} 
+          color="#fff5e6"
+          castShadow
+        />
+
+        <Stars radius={150} depth={50} count={6000} factor={4} saturation={1} fade speed={1} />
+        
+        <Suspense fallback={<Html center><div className="loader-text">INITIALIZING_GLOBAL_SURVEILLANCE...</div></Html>}>
+          <RealisticWorld isRotating={isRotating}>
+            <SeismicNodes data={data} onHover={setHoveredNode} />
+          </RealisticWorld>
+        </Suspense>
       </Canvas>
 
-      {/* OVERLAY INTERFACE */}
-      <div className="interface-overlay modern-hud" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
-        <div className="top-row" style={{ display: 'flex', justifyContent: 'space-between', padding: '40px' }}>
+      {/* EXPLORER HUD */}
+      <div className="explorer-hud" style={{ position: 'absolute', inset: 0, pointerEvents: 'none', padding: '40px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <motion.div 
-            initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }}
-            className="overlay-panel glass"
-            style={{ width: '400px', pointerEvents: 'auto' }}
+            initial={{ y: -20, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
+            className="hud-card"
+            style={{ pointerEvents: 'auto' }}
           >
-            <h2 className="serif" style={{ color: '#fff' }}>Simulation Lab v1.0</h2>
-            <p className="text-muted sm">Volumetric Tectonic Analysis</p>
+            <div className="tag">ORBITAL_PLATFORM_V4</div>
+            <h1 className="title serif">Global Surveillance</h1>
+            <p className="subtitle">Operational Seismic Intelligence Network</p>
             
-            <div className="divider-minimal" style={{ margin: '20px 0', background: 'rgba(255,255,255,0.1)' }}></div>
-            
-            <div className="telemetry-block">
-              <label style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.5)', letterSpacing: '0.2em' }}>3D MAPPED NODES</label>
-              <div className="value serif" style={{ fontSize: '2rem', color: '#fff' }}>{data.length}</div>
-            </div>
-
-            <div className="lab-info mt-3" style={{ marginTop: '20px' }}>
-              <p className="sm" style={{ opacity: 0.6, fontSize: '0.75rem', color: '#fff' }}>
-                Real-time 3D reconstruction of seismic events. Z-axis represents 
-                lithospheric depth (0-700km). Observe the Benioff Zone formation 
-                at plate boundaries.
-              </p>
+            <div className="stats-row">
+              <div className="stat">
+                <span className="num">{Math.floor(data.length / 1000)}K</span>
+                <span className="lab">NODES</span>
+              </div>
+              <div className="stat">
+                <span className="num">700KM</span>
+                <span className="lab">Z-RANGE</span>
+              </div>
             </div>
           </motion.div>
 
-          <div className="technical-panel glass" style={{ pointerEvents: 'auto' }}>
-            <div className="status-bit">
-              <span className="label" style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.5)' }}>ENGINE: </span>
-              <span className="val" style={{ color: '#fff', fontWeight: 'bold' }}>WEBGL 2.0</span>
-            </div>
-          </div>
+          {/* DYNAMIC DOSSIER */}
+          <AnimatePresence>
+            {hoveredNode && (
+              <motion.div 
+                initial={{ x: 20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: 20, opacity: 0 }}
+                className="hud-card dossier"
+                style={{ pointerEvents: 'auto', width: '300px' }}
+              >
+                <div className="dossier-header">
+                  <span className="tag-yellow">TARGET_ACQUIRED</span>
+                  <h2>{hoveredNode.place?.split(',').pop()?.trim() || 'Global Point'}</h2>
+                </div>
+                <div className="divider-sm" />
+                <div className="metrics">
+                  <div className="m-item"><strong>MAG:</strong> {hoveredNode.mag}M</div>
+                  <div className="m-item"><strong>DEP:</strong> {hoveredNode.depth}km</div>
+                  <div className="m-item"><strong>RSK:</strong> {hoveredNode.risk_score?.toFixed(2)}</div>
+                </div>
+                <div className="time">{new Date(hoveredNode.time).toLocaleString()}</div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* BOTTOM CONTROLS */}
+        <div style={{ position: 'absolute', bottom: '40px', left: '40px', right: '40px', display: 'flex', justifyContent: 'space-between' }}>
+           <div className="status-indicator">
+             <div className="dot pulse" />
+             <span>LIVE_TECTONIC_STREAM_ENABLED</span>
+           </div>
+           
+           <div className="controls-group" style={{ pointerEvents: 'auto' }}>
+             <button onClick={() => setIsRotating(!isRotating)} className="btn-explorer">
+               {isRotating ? 'SUSPEND_ORBIT' : 'RESUME_ORBIT'}
+             </button>
+           </div>
         </div>
       </div>
 
       <style jsx="true">{`
-        .glass {
-          background: rgba(10, 20, 30, 0.7);
+        .loader-text {
+          color: white;
+          font-family: monospace;
+          font-size: 0.8rem;
+          letter-spacing: 0.2em;
+          animation: blink 1.5s infinite;
+        }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+        
+        .hud-card {
+          background: rgba(255, 255, 255, 0.05);
           backdrop-filter: blur(20px);
           border: 1px solid rgba(255, 255, 255, 0.1);
-          padding: 25px;
+          padding: 24px;
           border-radius: 4px;
+          color: white;
         }
+        .tag { font-size: 0.6rem; letter-spacing: 0.2em; color: #88ccff; font-weight: 800; margin-bottom: 8px; }
+        .tag-yellow { font-size: 0.6rem; letter-spacing: 0.2em; color: #fbbf24; font-weight: 800; }
+        .title { font-size: 1.8rem; margin: 0; color: white; }
+        .subtitle { font-size: 0.75rem; opacity: 0.6; margin-top: 4px; }
+        .stats-row { display: flex; gap: 30px; margin-top: 20px; }
+        .stat .num { display: block; font-size: 1.2rem; font-weight: 800; color: #88ccff; }
+        .stat .lab { font-size: 0.6rem; opacity: 0.4; letter-spacing: 0.1em; }
+        .divider-sm { height: 1px; background: rgba(255,255,255,0.1); margin: 12px 0; }
+        .metrics { display: flex; gap: 15px; font-size: 0.8rem; margin-bottom: 8px; }
+        .time { font-size: 0.65rem; opacity: 0.5; }
+        .status-indicator { display: flex; align-items: center; gap: 10px; color: white; font-size: 0.6rem; letter-spacing: 0.15em; font-weight: 700; }
+        .dot { width: 6px; height: 6px; background: #22c55e; border-radius: 50%; }
+        .dot.pulse { animation: pulse 2s infinite; }
+        @keyframes pulse { 0% { opacity: 0.4; } 50% { opacity: 1; } 100% { opacity: 0.4; } }
+        .btn-explorer {
+          background: rgba(255,255,255,0.1);
+          border: 1px solid rgba(255,255,255,0.2);
+          color: white;
+          padding: 10px 24px;
+          font-size: 0.7rem;
+          font-weight: 800;
+          letter-spacing: 0.1em;
+          cursor: pointer;
+          transition: all 0.3s;
+        }
+        .btn-explorer:hover { background: white; color: black; }
       `}</style>
     </div>
   );

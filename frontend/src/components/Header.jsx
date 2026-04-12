@@ -5,7 +5,6 @@ const Header = ({ activeSection, setActiveSection }) => {
     { id: 'intelligence', label: 'Intelligence' },
     { id: 'surveillance', label: 'Surveillance' },
     { id: 'simulation', label: 'Simulation' },
-    { id: 'analysis', label: 'Analysis' },
     { id: 'dossier', label: 'Dossier' }
   ];
 

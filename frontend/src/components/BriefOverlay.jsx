@@ -6,22 +6,50 @@ const BriefOverlay = ({ isOpen, onClose, context }) => {
     intelligence: {
       title: "Intelligence Inquiry Desk",
       quote: "The model is not just a predictor; it is a synthesis of historical chaos.",
-      details: "This station utilizes an XGBoost ensemble trained on a decade of seismic telemetry. We evaluate 8 critical features, including Time Since Last (TSL) event and spatial DBSCAN zones, to determine hazard probability at the specified depth."
+      details: (
+        <div>
+          <p><strong>SYSTEM MISSION:</strong> This workstation uses a Machine Learning ensemble to synthesize risk for specific geographical coordinates. It evaluates spatial context against a decade of seismic history.</p>
+          <p className="mt-md"><strong>PARAMETER LOGIC:</strong></p>
+          <ul className="mt-sm" style={{ listStyle: 'none', padding: 0 }}>
+            <li>• <strong>LAT/LON:</strong> Contextualizes the target within historical tectonic zones.</li>
+            <li>• <strong>DEPTH:</strong> Source depth is the primary risk dissipator. Shallow events (&lt;50km) concentrate force at the surface, while deep events (300km+) typically lose hazard potential.</li>
+            <li>• <strong>HAZARD TABS:</strong> Switches the synthesis mode. <em>Seismic</em> is tectonic-focused, while <em>Tsunami</em> mode specifically analyzes surge potential from shallow-water hypocenters. </li>
+          </ul>
+        </div>
+      )
     },
     surveillance: {
       title: "Global Surveillance Desk",
       quote: "Observation is the first step toward mitigation.",
-      details: "A high-fidelity geospatial canvas rendering over 2,000 sampling points from the 2015-2024 seismic archive. Each blip represents a pre-calculated risk score, derived from magnitude density and vertical depth profiles."
+      details: (
+        <div>
+          <p><strong>SYSTEM MISSION:</strong> Provides a live geospatial overview of global seismic events. Analysts use this to monitor real-time clusters and density patterns.</p>
+          <p className="mt-md"><strong>PARAMETER LOGIC:</strong></p>
+          <ul className="mt-sm" style={{ listStyle: 'none', padding: 0 }}>
+            <li>• <strong>MAGNITUDE THRESHOLD:</strong> Adjust this filter to reduce background noise. High-magnitude events (7.0+) are automatically prioritized via color-coding to signify critical structural risk.</li>
+            <li>• <strong>TEMPORAL RANGE:</strong> Use the timeline to witness the "migration" of seismic activity across fault lines.</li>
+          </ul>
+        </div>
+      )
     },
-    analysis: {
-      title: "Technical Analysis Lab",
-      quote: "Patterns emerge when we look beyond the epicenter.",
-      details: "This lab deconstructs the feature importance of our intelligence core. We explore how temporal cycles (hour/month) and spatial clustering (DBSCAN) influence the final risk assessment."
+    simulation: {
+      title: "Simulation Lab",
+      quote: "Reconstructing the lithospheric volume.",
+      details: (
+        <div>
+          <p><strong>SYSTEM MISSION:</strong> A volumetric 3D projection of tectonic activity. It visualizes the Earth not just as a surface, but as a deep, active volume.</p>
+          <p className="mt-md"><strong>PARAMETER LOGIC:</strong></p>
+          <ul className="mt-sm" style={{ listStyle: 'none', padding: 0 }}>
+            <li>• <strong>Z-AXIS MAPPING:</strong> Points are accurately placed according to their depth. Explore how clusters "plumage" beneath the crust.</li>
+            <li>• <strong>RESUME/SUSPEND:</strong> Halt autonomous orbital tracking to lock on specific regional focal points for deep inspection.</li>
+          </ul>
+        </div>
+      )
     },
     dossier: {
       title: "Project Dossier",
       quote: "Structural resilience through digital intelligence.",
-      details: "The QuakeIntel initiative seeks to bridge the gap between raw CSV data and actionable geospatial insight. Built with React, Flask, and Scikit-Learn."
+      details: "Comprehensive documentation of the SeismoSense system architecture and technical performance. This consolidated archive details the XGBoost model parameters, feature importance (DBSCAN/TSL), and the historical dataset metrics (98.17% accuracy) used for global synthesis."
     }
   };
 
