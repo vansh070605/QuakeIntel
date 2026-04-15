@@ -5,15 +5,18 @@ import * as THREE from 'three';
 import { motion, AnimatePresence } from 'framer-motion';
 
 // --- GEOGRAPHIC UTILS ---
-// Correct formula for Three.js SphereGeometry with equirectangular texture:
-// U=0 of the texture (lon=-180) maps to the -X axis of the sphere.
-// Therefore: theta = (lon + 180), x = -r·sin(phi)·cos(theta)
+// Standard spherical-to-Cartesian for Three.js SphereGeometry:
+// phi   = polar angle from +Y (0 at north pole, π at south pole)
+// theta = azimuthal angle from +X in the XZ plane
+// The -π/2 Y-rotation on the group aligns lon=0 (prime meridian) to face +Z (camera).
 const latLonToVector3 = (lat, lon, radius) => {
-  const phi   = (90 - lat) * (Math.PI / 180);
-  const theta = (lon + 180) * (Math.PI / 180);
-  const x = -(radius * Math.sin(phi) * Math.cos(theta));
-  const z =   radius * Math.sin(phi) * Math.sin(theta);
-  const y =   radius * Math.cos(phi);
+  const phi = (90 - lat) * (Math.PI / 180);
+  const theta = (lon + 180) * (Math.PI / 180); // shift so lon=-180 → theta=0 (+X axis)
+
+  const x = -radius * Math.sin(phi) * Math.cos(theta); // negate: Three.js sphere winds CW
+  const y = radius * Math.cos(phi);
+  const z = radius * Math.sin(phi) * Math.sin(theta);
+
   return new THREE.Vector3(x, y, z);
 };
 
@@ -25,16 +28,14 @@ const getTier = (p) => {
   return 'nominal';
 };
 
-// --- SEISMIC POINTS (particle system — one draw call, tiny crisp dots) ---
+// --- SEISMIC POINTS ---
 const TIER_COLORS = {
-  severe:   new THREE.Color('#ff3333'),
+  severe: new THREE.Color('#ff3333'),
   moderate: new THREE.Color('#ff9900'),
-  nominal:  new THREE.Color('#ffe033'),
+  nominal: new THREE.Color('#ffe033'),
 };
 
 const SeismicPoints = ({ data, onHover }) => {
-  // Build geometry imperatively — avoids R3F declarative bufferAttribute
-  // update issues when async data arrives after initial render.
   const { geo, originalData } = useMemo(() => {
     const positions = [];
     const colors = [];
@@ -51,15 +52,13 @@ const SeismicPoints = ({ data, onHover }) => {
 
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
-    geo.setAttribute('color',    new THREE.BufferAttribute(new Float32Array(colors), 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(colors), 3));
     geo.computeBoundingSphere();
     return { geo, originalData };
   }, [data]);
 
   const handlePointerMove = useCallback((e) => {
-    if (e.index != null && originalData[e.index]) {
-      onHover(originalData[e.index]);
-    }
+    if (e.index != null && originalData[e.index]) onHover(originalData[e.index]);
   }, [originalData, onHover]);
 
   const handlePointerLeave = useCallback(() => onHover(null), [onHover]);
@@ -67,18 +66,8 @@ const SeismicPoints = ({ data, onHover }) => {
   if (!data || data.length === 0) return null;
 
   return (
-    <points
-      geometry={geo}
-      onPointerMove={handlePointerMove}
-      onPointerLeave={handlePointerLeave}
-    >
-      <pointsMaterial
-        vertexColors
-        size={2.5}
-        sizeAttenuation={false}
-        transparent
-        opacity={0.9}
-      />
+    <points geometry={geo} onPointerMove={handlePointerMove} onPointerLeave={handlePointerLeave}>
+      <pointsMaterial vertexColors size={2.5} sizeAttenuation={false} transparent opacity={0.9} />
     </points>
   );
 };
@@ -97,10 +86,7 @@ const generateCloudTexture = () => {
   ctx.fillStyle = 'black';
   ctx.fillRect(0, 0, w, h);
   let s = 42;
-  const rand = () => {
-    s = (s * 1664525 + 1013904223) & 0xffffffff;
-    return (s >>> 0) / 0xffffffff;
-  };
+  const rand = () => { s = (s * 1664525 + 1013904223) & 0xffffffff; return (s >>> 0) / 0xffffffff; };
   for (let i = 0; i < 800; i++) {
     const x = rand() * w, y = rand() * h, r = rand() * 80 + 20;
     const alpha = rand() * 0.35 + 0.05;
@@ -143,12 +129,23 @@ const RealisticWorld = ({ children, isRotating }) => {
 
   return (
     <group>
+      {/* Atmosphere glow */}
       <mesh scale={[1.18, 1.18, 1.18]}>
         <sphereGeometry args={[5, 64, 64]} />
-        <meshBasicMaterial color="#4488ff" transparent opacity={0.06} side={THREE.BackSide} blending={THREE.AdditiveBlending} depthWrite={false} />
+        <meshBasicMaterial color="#4488ff" transparent opacity={0.06} side={THREE.BackSide}
+          blending={THREE.AdditiveBlending} depthWrite={false} />
       </mesh>
 
-      <group ref={groupRef}>
+      {/*
+        rotation={[0, -Math.PI / 2, 0]}:
+        Three.js SphereGeometry places the texture seam (U=0) at the +X axis.
+        The blue-marble texture has lon=0 at U=0.5 (texture center).
+        A -90° Y-rotation shifts the seam so that +Z faces lon=0,
+        which is where the camera sits at position [0,0,15].
+        SeismicPoints inherit this rotation as children, so points and
+        texture stay locked together during auto-rotation.
+      */}
+      <group ref={groupRef} rotation={[0, -Math.PI / 2, 0]}>
         <mesh>
           <sphereGeometry args={[5, 128, 128]} />
           <meshPhongMaterial
@@ -163,12 +160,15 @@ const RealisticWorld = ({ children, isRotating }) => {
             shininess={18}
           />
         </mesh>
+        {/* SeismicPoints are children here — they rotate with the globe */}
         {children}
       </group>
 
+      {/* Clouds float independently, slightly faster than globe */}
       <mesh ref={cloudRef} scale={[1.007, 1.007, 1.007]}>
         <sphereGeometry args={[5, 64, 64]} />
-        <meshStandardMaterial map={cloudTexture} transparent opacity={0.22} depthWrite={false} blending={THREE.AdditiveBlending} />
+        <meshStandardMaterial map={cloudTexture} transparent opacity={0.22}
+          depthWrite={false} blending={THREE.AdditiveBlending} />
       </mesh>
     </group>
   );
@@ -207,7 +207,13 @@ const SimulationView = () => {
         <directionalLight position={[10, 5, 10]} intensity={2.2} color="#fff5e6" castShadow />
         <directionalLight position={[-10, -5, -10]} intensity={0.15} color="#aaccff" />
         <Stars radius={200} depth={60} count={8000} factor={4} saturation={0.8} fade speed={0.8} />
-        <Suspense fallback={<Html center><div style={{ color: 'white', fontFamily: 'monospace', fontSize: '0.8rem', letterSpacing: '0.2em' }}>INITIALIZING...</div></Html>}>
+        <Suspense fallback={
+          <Html center>
+            <div style={{ color: 'white', fontFamily: 'monospace', fontSize: '0.8rem', letterSpacing: '0.2em' }}>
+              INITIALIZING...
+            </div>
+          </Html>
+        }>
           <RealisticWorld isRotating={isRotating}>
             <SeismicPoints data={data} onHover={setHoveredNode} />
           </RealisticWorld>
@@ -216,8 +222,12 @@ const SimulationView = () => {
 
       <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', padding: '40px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <motion.div initial={{ y: -20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} style={{ ...cardStyle, pointerEvents: 'auto' }}>
-            <div style={{ fontSize: '0.6rem', letterSpacing: '0.2em', color: '#88ccff', fontWeight: 800, marginBottom: '8px' }}>ORBITAL_PLATFORM_V4</div>
+
+          <motion.div initial={{ y: -20, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
+            style={{ ...cardStyle, pointerEvents: 'auto' }}>
+            <div style={{ fontSize: '0.6rem', letterSpacing: '0.2em', color: '#88ccff', fontWeight: 800, marginBottom: '8px' }}>
+              ORBITAL_PLATFORM_V4
+            </div>
             <h1 style={{ fontSize: '1.8rem', margin: 0 }}>Global Surveillance</h1>
             <p style={{ fontSize: '0.75rem', opacity: 0.6, marginTop: '4px' }}>Operational Seismic Intelligence Network</p>
             <div style={{ display: 'flex', gap: '30px', marginTop: '20px' }}>
@@ -244,17 +254,24 @@ const SimulationView = () => {
 
           <AnimatePresence>
             {hoveredNode && (
-              <motion.div key="dossier" initial={{ x: 20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: 20, opacity: 0 }}
+              <motion.div key="dossier"
+                initial={{ x: 20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: 20, opacity: 0 }}
                 style={{ ...cardStyle, pointerEvents: 'auto', width: '300px' }}>
-                <div style={{ fontSize: '0.6rem', letterSpacing: '0.2em', color: '#fbbf24', fontWeight: 800 }}>TARGET_ACQUIRED</div>
-                <h2 style={{ margin: '6px 0', fontSize: '1rem' }}>{hoveredNode.place?.split(',').pop()?.trim() || 'Global Point'}</h2>
+                <div style={{ fontSize: '0.6rem', letterSpacing: '0.2em', color: '#fbbf24', fontWeight: 800 }}>
+                  TARGET_ACQUIRED
+                </div>
+                <h2 style={{ margin: '6px 0', fontSize: '1rem' }}>
+                  {hoveredNode.place?.split(',').pop()?.trim() || 'Global Point'}
+                </h2>
                 <div style={{ height: 1, background: 'rgba(255,255,255,0.1)', margin: '12px 0' }} />
                 <div style={{ display: 'flex', gap: '15px', fontSize: '0.8rem', marginBottom: '8px' }}>
                   <div><strong>MAG:</strong> {hoveredNode.mag}M</div>
                   <div><strong>DEP:</strong> {hoveredNode.depth}km</div>
                   <div><strong>RSK:</strong> {hoveredNode.risk_score?.toFixed(2)}</div>
                 </div>
-                <div style={{ fontSize: '0.65rem', opacity: 0.5 }}>{new Date(hoveredNode.time).toLocaleString()}</div>
+                <div style={{ fontSize: '0.65rem', opacity: 0.5 }}>
+                  {new Date(hoveredNode.time).toLocaleString()}
+                </div>
               </motion.div>
             )}
           </AnimatePresence>
