@@ -1,16 +1,19 @@
-import React, { useState, useEffect, useRef, useMemo, Suspense } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback, Suspense } from 'react';
 import { Canvas, useFrame, useLoader } from '@react-three/fiber';
 import { OrbitControls, Stars, PerspectiveCamera, Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { motion, AnimatePresence } from 'framer-motion';
 
 // --- GEOGRAPHIC UTILS ---
+// Correct formula for Three.js SphereGeometry with equirectangular texture:
+// U=0 of the texture (lon=-180) maps to the -X axis of the sphere.
+// Therefore: theta = (lon + 180), x = -r·sin(phi)·cos(theta)
 const latLonToVector3 = (lat, lon, radius) => {
-  const phi = (90 - lat) * (Math.PI / 180);
+  const phi   = (90 - lat) * (Math.PI / 180);
   const theta = (lon + 180) * (Math.PI / 180);
   const x = -(radius * Math.sin(phi) * Math.cos(theta));
-  const z = radius * Math.sin(phi) * Math.sin(theta);
-  const y = radius * Math.cos(phi);
+  const z =   radius * Math.sin(phi) * Math.sin(theta);
+  const y =   radius * Math.cos(phi);
   return new THREE.Vector3(x, y, z);
 };
 
@@ -22,92 +25,69 @@ const getTier = (p) => {
   return 'nominal';
 };
 
-// --- SINGLE-COLOR INSTANCED TIER MESH ---
-// Each tier gets its own instancedMesh with ONE plain color on the material.
-// This is the most reliable approach — no vertexColors, no instanceColor buffer issues.
-const TierMesh = ({ points, color, onHover }) => {
-  const meshRef = useRef();
-  const tempObj = useMemo(() => new THREE.Object3D(), []);
-
-  useEffect(() => {
-    const mesh = meshRef.current;
-    if (!mesh || points.length === 0) return;
-    points.forEach(({ pos, mag }, i) => {
-      tempObj.position.set(pos.x, pos.y, pos.z);
-      const s = Math.max((mag ?? 3) * 0.018, 0.025);
-      tempObj.scale.set(s, s, s);
-      tempObj.updateMatrix();
-      mesh.setMatrixAt(i, tempObj.matrix);
-    });
-    mesh.instanceMatrix.needsUpdate = true;
-  }, [points]);
-
-  useFrame(() => {
-    const mesh = meshRef.current;
-    if (!mesh || points.length === 0) return;
-    const now = Date.now();
-    points.forEach(({ pos, mag }, i) => {
-      tempObj.position.set(pos.x, pos.y, pos.z);
-      const pulse = 1 + Math.sin(now * 0.003 + i * 0.7) * 0.18;
-      const s = Math.max((mag ?? 3) * 0.018, 0.025) * pulse;
-      tempObj.scale.set(s, s, s);
-      tempObj.updateMatrix();
-      mesh.setMatrixAt(i, tempObj.matrix);
-    });
-    mesh.instanceMatrix.needsUpdate = true;
-  });
-
-  if (points.length === 0) return null;
-
-  return (
-    <instancedMesh
-      ref={meshRef}
-      args={[null, null, points.length]}
-      onPointerOver={(e) => {
-        e.stopPropagation();
-        const pt = points[e.instanceId];
-        if (pt) onHover(pt.original);
-      }}
-      onPointerOut={() => onHover(null)}
-    >
-      <sphereGeometry args={[1, 10, 10]} />
-      <meshBasicMaterial color={color} transparent opacity={0.9} depthWrite={false} />
-    </instancedMesh>
-  );
+// --- SEISMIC POINTS (particle system — one draw call, tiny crisp dots) ---
+const TIER_COLORS = {
+  severe:   new THREE.Color('#ff3333'),
+  moderate: new THREE.Color('#ff9900'),
+  nominal:  new THREE.Color('#ffe033'),
 };
 
-// --- SEISMIC NODES ROUTER ---
-const SeismicNodes = ({ data, onHover }) => {
-  const tiers = useMemo(() => {
-    const severe = [], moderate = [], nominal = [];
+const SeismicPoints = ({ data, onHover }) => {
+  // Build geometry imperatively — avoids R3F declarative bufferAttribute
+  // update issues when async data arrives after initial render.
+  const { geo, originalData } = useMemo(() => {
+    const positions = [];
+    const colors = [];
+    const originalData = [];
+
     (data || []).forEach((p) => {
       const radius = 5.06 - ((p.depth ?? 0) / 700) * 0.5;
       const pos = latLonToVector3(p.lat, p.lon, radius);
-      const entry = { pos, mag: p.mag, original: p };
-      const t = getTier(p);
-      if (t === 'severe')        severe.push(entry);
-      else if (t === 'moderate') moderate.push(entry);
-      else                       nominal.push(entry);
+      positions.push(pos.x, pos.y, pos.z);
+      const c = TIER_COLORS[getTier(p)];
+      colors.push(c.r, c.g, c.b);
+      originalData.push(p);
     });
-    return { severe, moderate, nominal };
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
+    geo.setAttribute('color',    new THREE.BufferAttribute(new Float32Array(colors), 3));
+    geo.computeBoundingSphere();
+    return { geo, originalData };
   }, [data]);
+
+  const handlePointerMove = useCallback((e) => {
+    if (e.index != null && originalData[e.index]) {
+      onHover(originalData[e.index]);
+    }
+  }, [originalData, onHover]);
+
+  const handlePointerLeave = useCallback(() => onHover(null), [onHover]);
 
   if (!data || data.length === 0) return null;
 
   return (
-    <>
-      <TierMesh points={tiers.severe}   color="#ff1a1a" onHover={onHover} />
-      <TierMesh points={tiers.moderate} color="#ff8800" onHover={onHover} />
-      <TierMesh points={tiers.nominal}  color="#ffe033" onHover={onHover} />
-    </>
+    <points
+      geometry={geo}
+      onPointerMove={handlePointerMove}
+      onPointerLeave={handlePointerLeave}
+    >
+      <pointsMaterial
+        vertexColors
+        size={2.5}
+        sizeAttenuation={false}
+        transparent
+        opacity={0.9}
+      />
+    </points>
   );
 };
 
 // --- EARTH TEXTURES ---
-const EARTH_DAY   = 'https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg';
+const EARTH_DAY = 'https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg';
 const EARTH_NIGHT = 'https://unpkg.com/three-globe/example/img/earth-night.jpg';
-const EARTH_BUMP  = 'https://unpkg.com/three-globe/example/img/earth-topology.png';
-const EARTH_SPEC  = 'https://unpkg.com/three-globe/example/img/earth-water.png';
+const EARTH_BUMP = 'https://unpkg.com/three-globe/example/img/earth-topology.png';
+const EARTH_SPEC = 'https://unpkg.com/three-globe/example/img/earth-water.png';
 
 const generateCloudTexture = () => {
   const w = 2048, h = 1024;
@@ -227,36 +207,36 @@ const SimulationView = () => {
         <directionalLight position={[10, 5, 10]} intensity={2.2} color="#fff5e6" castShadow />
         <directionalLight position={[-10, -5, -10]} intensity={0.15} color="#aaccff" />
         <Stars radius={200} depth={60} count={8000} factor={4} saturation={0.8} fade speed={0.8} />
-        <Suspense fallback={<Html center><div style={{ color:'white', fontFamily:'monospace', fontSize:'0.8rem', letterSpacing:'0.2em' }}>INITIALIZING...</div></Html>}>
+        <Suspense fallback={<Html center><div style={{ color: 'white', fontFamily: 'monospace', fontSize: '0.8rem', letterSpacing: '0.2em' }}>INITIALIZING...</div></Html>}>
           <RealisticWorld isRotating={isRotating}>
-            <SeismicNodes data={data} onHover={setHoveredNode} />
+            <SeismicPoints data={data} onHover={setHoveredNode} />
           </RealisticWorld>
         </Suspense>
       </Canvas>
 
-      <div style={{ position:'absolute', inset:0, pointerEvents:'none', padding:'40px' }}>
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
-          <motion.div initial={{ y:-20, opacity:0 }} animate={{ y:0, opacity:1 }} style={{ ...cardStyle, pointerEvents:'auto' }}>
-            <div style={{ fontSize:'0.6rem', letterSpacing:'0.2em', color:'#88ccff', fontWeight:800, marginBottom:'8px' }}>ORBITAL_PLATFORM_V4</div>
-            <h1 style={{ fontSize:'1.8rem', margin:0 }}>Global Surveillance</h1>
-            <p style={{ fontSize:'0.75rem', opacity:0.6, marginTop:'4px' }}>Operational Seismic Intelligence Network</p>
-            <div style={{ display:'flex', gap:'30px', marginTop:'20px' }}>
+      <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', padding: '40px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <motion.div initial={{ y: -20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} style={{ ...cardStyle, pointerEvents: 'auto' }}>
+            <div style={{ fontSize: '0.6rem', letterSpacing: '0.2em', color: '#88ccff', fontWeight: 800, marginBottom: '8px' }}>ORBITAL_PLATFORM_V4</div>
+            <h1 style={{ fontSize: '1.8rem', margin: 0 }}>Global Surveillance</h1>
+            <p style={{ fontSize: '0.75rem', opacity: 0.6, marginTop: '4px' }}>Operational Seismic Intelligence Network</p>
+            <div style={{ display: 'flex', gap: '30px', marginTop: '20px' }}>
               <div>
-                <span style={{ display:'block', fontSize:'1.2rem', fontWeight:800, color:'#88ccff' }}>
-                  {data.length >= 1000 ? `${Math.floor(data.length/1000)}K` : data.length}
+                <span style={{ display: 'block', fontSize: '1.2rem', fontWeight: 800, color: '#88ccff' }}>
+                  {data.length >= 1000 ? `${Math.floor(data.length / 1000)}K` : data.length}
                 </span>
-                <span style={{ fontSize:'0.6rem', opacity:0.4, letterSpacing:'0.1em' }}>NODES</span>
+                <span style={{ fontSize: '0.6rem', opacity: 0.4, letterSpacing: '0.1em' }}>NODES</span>
               </div>
               <div>
-                <span style={{ display:'block', fontSize:'1.2rem', fontWeight:800, color:'#88ccff' }}>700KM</span>
-                <span style={{ fontSize:'0.6rem', opacity:0.4, letterSpacing:'0.1em' }}>Z-RANGE</span>
+                <span style={{ display: 'block', fontSize: '1.2rem', fontWeight: 800, color: '#88ccff' }}>700KM</span>
+                <span style={{ fontSize: '0.6rem', opacity: 0.4, letterSpacing: '0.1em' }}>Z-RANGE</span>
               </div>
             </div>
-            <div style={{ display:'flex', gap:'14px', marginTop:'16px' }}>
-              {[['#ff1a1a','SEVERE'],['#ff8800','MODERATE'],['#ffe033','NOMINAL']].map(([c,l]) => (
-                <div key={l} style={{ display:'flex', alignItems:'center', gap:'5px' }}>
-                  <div style={{ width:8, height:8, borderRadius:'50%', background:c }} />
-                  <span style={{ fontSize:'0.55rem', opacity:0.7, letterSpacing:'0.08em' }}>{l}</span>
+            <div style={{ display: 'flex', gap: '14px', marginTop: '16px' }}>
+              {[['#ff1a1a', 'SEVERE'], ['#ff8800', 'MODERATE'], ['#ffe033', 'NOMINAL']].map(([c, l]) => (
+                <div key={l} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: c }} />
+                  <span style={{ fontSize: '0.55rem', opacity: 0.7, letterSpacing: '0.08em' }}>{l}</span>
                 </div>
               ))}
             </div>
@@ -264,29 +244,29 @@ const SimulationView = () => {
 
           <AnimatePresence>
             {hoveredNode && (
-              <motion.div key="dossier" initial={{ x:20, opacity:0 }} animate={{ x:0, opacity:1 }} exit={{ x:20, opacity:0 }}
-                style={{ ...cardStyle, pointerEvents:'auto', width:'300px' }}>
-                <div style={{ fontSize:'0.6rem', letterSpacing:'0.2em', color:'#fbbf24', fontWeight:800 }}>TARGET_ACQUIRED</div>
-                <h2 style={{ margin:'6px 0', fontSize:'1rem' }}>{hoveredNode.place?.split(',').pop()?.trim() || 'Global Point'}</h2>
-                <div style={{ height:1, background:'rgba(255,255,255,0.1)', margin:'12px 0' }} />
-                <div style={{ display:'flex', gap:'15px', fontSize:'0.8rem', marginBottom:'8px' }}>
+              <motion.div key="dossier" initial={{ x: 20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: 20, opacity: 0 }}
+                style={{ ...cardStyle, pointerEvents: 'auto', width: '300px' }}>
+                <div style={{ fontSize: '0.6rem', letterSpacing: '0.2em', color: '#fbbf24', fontWeight: 800 }}>TARGET_ACQUIRED</div>
+                <h2 style={{ margin: '6px 0', fontSize: '1rem' }}>{hoveredNode.place?.split(',').pop()?.trim() || 'Global Point'}</h2>
+                <div style={{ height: 1, background: 'rgba(255,255,255,0.1)', margin: '12px 0' }} />
+                <div style={{ display: 'flex', gap: '15px', fontSize: '0.8rem', marginBottom: '8px' }}>
                   <div><strong>MAG:</strong> {hoveredNode.mag}M</div>
                   <div><strong>DEP:</strong> {hoveredNode.depth}km</div>
                   <div><strong>RSK:</strong> {hoveredNode.risk_score?.toFixed(2)}</div>
                 </div>
-                <div style={{ fontSize:'0.65rem', opacity:0.5 }}>{new Date(hoveredNode.time).toLocaleString()}</div>
+                <div style={{ fontSize: '0.65rem', opacity: 0.5 }}>{new Date(hoveredNode.time).toLocaleString()}</div>
               </motion.div>
             )}
           </AnimatePresence>
         </div>
 
-        <div style={{ position:'absolute', bottom:'40px', left:'40px', right:'40px', display:'flex', justifyContent:'space-between' }}>
-          <div style={{ display:'flex', alignItems:'center', gap:'10px', color:'white', fontSize:'0.6rem', letterSpacing:'0.15em', fontWeight:700 }}>
-            <div style={{ width:6, height:6, background:'#22c55e', borderRadius:'50%', animation:'nodePulse 2s infinite' }} />
+        <div style={{ position: 'absolute', bottom: '40px', left: '40px', right: '40px', display: 'flex', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: 'white', fontSize: '0.6rem', letterSpacing: '0.15em', fontWeight: 700 }}>
+            <div style={{ width: 6, height: 6, background: '#22c55e', borderRadius: '50%', animation: 'nodePulse 2s infinite' }} />
             LIVE_TECTONIC_STREAM_ENABLED
           </div>
           <button onClick={() => setIsRotating(!isRotating)}
-            style={{ pointerEvents:'auto', background:'rgba(255,255,255,0.1)', border:'1px solid rgba(255,255,255,0.2)', color:'white', padding:'10px 24px', fontSize:'0.7rem', fontWeight:800, letterSpacing:'0.1em', cursor:'pointer' }}>
+            style={{ pointerEvents: 'auto', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', padding: '10px 24px', fontSize: '0.7rem', fontWeight: 800, letterSpacing: '0.1em', cursor: 'pointer' }}>
             {isRotating ? 'SUSPEND_ORBIT' : 'RESUME_ORBIT'}
           </button>
         </div>

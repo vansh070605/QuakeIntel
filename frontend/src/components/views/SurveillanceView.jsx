@@ -18,7 +18,7 @@ const SurveillanceView = () => {
       .then(result => {
         if (result.status === 'success') {
           setHistoricalPoints(result.data);
-          
+
           const d = result.data;
           const severe = d.filter(p => p.risk_score > 7).length;
           const moderate = d.filter(p => p.risk_score > 4 && p.risk_score <= 7).length;
@@ -50,9 +50,9 @@ const SurveillanceView = () => {
   return (
     <div className="surveillance-container">
       {/* MAP ENGINE: LIGHT THEMED */}
-      <MapContainer 
-        center={[20, 0]} 
-        zoom={2} 
+      <MapContainer
+        center={[20, 0]}
+        zoom={2}
         minZoom={2}
         maxZoom={12}
         zoomControl={false}
@@ -62,27 +62,27 @@ const SurveillanceView = () => {
           url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
           attribution='&copy; CARTO'
         />
-        
+
         {/* TECTONIC LINES */}
         {faultData && (
-          <GeoJSON 
-            data={faultData} 
+          <GeoJSON
+            data={faultData}
             style={{ color: '#94a3b8', weight: 1.5, opacity: 0.4, dashArray: '4, 12' }}
           />
         )}
 
         {/* SEISMIC DATA NODES */}
         {filteredPoints.map((p, i) => (
-          <CircleMarker 
-            key={i} 
-            center={[p.lat, p.lon]} 
+          <CircleMarker
+            key={i}
+            center={[p.lat, p.lon]}
             {...getMarkerStyle(p.risk_score)}
           >
             <Popup className="professional-popup">
               <div style={{ fontFamily: 'var(--font-sans)', padding: '4px' }}>
                 <strong style={{ fontSize: '0.9rem', color: '#334155' }}>{p.place || 'Seismic Event'}</strong>
                 <div style={{ marginTop: '8px', fontSize: '0.8rem', color: '#64748b' }}>
-                  Magnitude: <span style={{ fontWeight: 600, color: '#1e293b' }}>{p.mag}M</span><br/>
+                  Magnitude: <span style={{ fontWeight: 600, color: '#1e293b' }}>{p.mag}M</span><br />
                   Risk Index: <span style={{ fontWeight: 600, color: p.risk_score > 7 ? '#dc2626' : '#f97316' }}>{p.risk_score.toFixed(2)}/10</span>
                 </div>
               </div>
@@ -93,8 +93,8 @@ const SurveillanceView = () => {
 
       {/* FLOATING CONTROL PANEL */}
       <div className="overlay-container">
-        <motion.div 
-          initial={{ y: -22, opacity: 0 }} 
+        <motion.div
+          initial={{ y: -22, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           className="floating-panel"
         >
@@ -102,7 +102,7 @@ const SurveillanceView = () => {
             <h2 style={{ fontSize: '1.2rem', fontWeight: 700, color: '#1e293b', fontFamily: 'var(--font-sans)' }}>Global Surveillance</h2>
             <p style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px', fontFamily: 'var(--font-sans)' }}>Operational Hazard Registry</p>
           </div>
-          
+
           <div className="divider-sm"></div>
 
           <div className="telemetry-section">
@@ -110,13 +110,13 @@ const SurveillanceView = () => {
               <span>DISTRIBUTION</span>
               <span>{historicalPoints.length} NODES</span>
             </div>
-            
+
             <div className="mega-bar">
               <div style={{ width: `${(stats.severe / (historicalPoints.length || 1)) * 100}%`, background: '#dc2626' }}></div>
               <div style={{ width: `${(stats.moderate / (historicalPoints.length || 1)) * 100}%`, background: '#f97316' }}></div>
               <div style={{ width: `${(stats.nominal / (historicalPoints.length || 1)) * 100}%`, background: '#22c55e' }}></div>
             </div>
-            
+
             <div className="stat-grid-sm">
               <div className="stat-item">
                 <span style={{ color: '#dc2626' }}>{stats.severe}</span>
@@ -136,12 +136,12 @@ const SurveillanceView = () => {
           <div className="divider-sm"></div>
 
           <div className="control-group">
-             <button 
-                className={`toggle-pill ${showNominal ? 'active' : ''}`}
-                onClick={() => setShowNominal(!showNominal)}
-             >
-               {showNominal ? "Focus High Risk" : "Scan Nominal Data"}
-             </button>
+            <button
+              className={`toggle-pill ${showNominal ? 'active' : ''}`}
+              onClick={() => setShowNominal(!showNominal)}
+            >
+              {showNominal ? "Focus High Risk" : "Scan Nominal Data"}
+            </button>
           </div>
         </motion.div>
       </div>
